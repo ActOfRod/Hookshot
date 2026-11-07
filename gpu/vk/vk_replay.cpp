@@ -1933,11 +1933,12 @@ void log_frame_stats() {
         static int64_t l_reused;
         logf("vk: a frame: %.0f draws kept their neighbour's descriptors", (draw_desc_reused() - l_reused) / 120.0);
         l_reused = draw_desc_reused();
-        logf("vk: a frame: %.1f draws left out (not ready), %.2f waits for shaders or pipelines (%.1f ms); "
-             "translation %.0f ms in all, %d jobs queued",
+        static int64_t l_taken;
+        logf("vk: a frame: %.1f draws left out (not ready), %.2f waits for shaders or pipelines (%.1f ms, %.2f built by the "
+             "draw); translation %.0f ms in all, %d jobs queued",
              (pskip - l_pskip) / 120.0, (pwaits - l_pwaits) / 120.0, (pwait_ms - l_pwait_ms) / 120.0,
-             shader_translate_ms(), jobs_pending());
-        l_pskip = pskip, l_pwaits = pwaits, l_pwait_ms = pwait_ms;
+             (jobs_taken_over() - l_taken) / 120.0, shader_translate_ms(), jobs_pending());
+        l_pskip = pskip, l_pwaits = pwaits, l_pwait_ms = pwait_ms, l_taken = jobs_taken_over();
         {
             static const char* names[PROF_COUNT] = {"submit", "present", "draw", "descriptors", "texture lookups",
                                                     "uploads", "pipelines", "programs", "commands", "dispatch",

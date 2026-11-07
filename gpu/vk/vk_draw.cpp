@@ -565,6 +565,7 @@ struct Targets {
 struct PipeEntry {
     std::atomic<bool> ready{false};
     std::atomic<VkPipeline> pipeline{VK_NULL_HANDLE};   // (a fast-linked one first, the worker's full build over it)
+    std::shared_ptr<JobClaim> job;                       // (the build, for a draw that waits to run itself)
 };
 std::unordered_map<uint64_t, std::unique_ptr<PipeEntry>> pipelines;   // (the replay thread's)
 int64_t st_draws, st_skipped, st_dispatches, st_passes, st_mesh, st_pending_skips, st_waits;
@@ -823,11 +824,13 @@ PipeEntry* graphics_pipeline(const Program& p, const NvnState& s, const Targets&
     };
     auto job = std::make_shared<Job>();
     job->e = e, job->p = &p, job->s = s, job->at = at, job->topo = topo;
-    jobs_push([job] {
+    e->job = std::make_shared<JobClaim>();
+    e->job->fn = [job] {
         // (over a linked one, which is left alone: draws recorded with it may still be on their way)
         if (const VkPipeline full = build_graphics(*job->p, job->s, job->at, job->topo)) job->e->pipeline = full;
         job->e->ready.store(true, std::memory_order_release);
-    });
+    };
+    jobs_push_claim(e->job);
     return e;
 }
 
@@ -3829,9 +3832,10 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
     // RX_VK_PIPE_SKIP=0: waited for, as mkw-recomp needs)
     static const bool always_wait = getenv("RX_VK_PIPE_SKIP") && atoi(getenv("RX_VK_PIPE_SKIP")) == 0;
     const bool may_skip = !always_wait && targets_persistent(at);
-    auto wait_for = [&](const std::atomic<bool>& ready) {
+    // (a pipeline no worker has started is built here: queued, it waited for every build ahead of it)
+    auto wait_for = [&](const std::atomic<bool>& ready, JobClaim* claim = nullptr) {
         const auto t0 = std::chrono::steady_clock::now();
-        jobs_wait(ready);
+        jobs_run_or_wait(claim, ready);
         st_waits++;
         st_wait_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     };
@@ -3853,7 +3857,7 @@ void draw(VkCommandBuffer cmd, NvnState& s, const DrawArgs& d) {
     }
     if (!pe->ready.load(std::memory_order_acquire)) {
         if (may_skip) return void(st_pending_skips++);
-        wait_for(pe->ready);
+        wait_for(pe->ready, pe->job.get());
     }
     const VkPipeline pl = pe->pipeline;
     if (!pl) SKIP_HERE();

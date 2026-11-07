@@ -13,7 +13,7 @@ namespace HookshotBuilder;
 /// folder keeps).
 static class Updater
 {
-    const string Latest = "https://api.github.com/repos/NotRexed/Hookshot/releases/latest";
+    const string Latest = "https://api.github.com/repos/ActOfRod/Hookshot/releases/latest";
     const string Asset = "HookshotBuilder.zip";
 
     public static async void FromCommandLine(MainWindow w)
